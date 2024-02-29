@@ -1,0 +1,125 @@
+# Reusable changelog generator workflow
+name: Release
+
+on:
+  # Event to call "import" this workflow from a caller a workflow
+  workflow_call:
+    # input string to be provided by the caller workflow
+    inputs:
+      scope:
+        required: true
+        type: string
+        default: "none"
+        description: "module scope name"
+      project_name:
+        required: true
+        type: string
+        default: "none"
+        description: "module/sub-project name"
+      project_dir:
+        required: true
+        type: string
+        default: "none"
+        description: "module/sub-project directory"
+      version:
+        required: false
+        type: string
+        default: "none"
+        description: "module semantic version"
+      fromTag:
+        required: false
+        type: string
+        default: "none"
+        description: "describes the lower bound to process pull requests for"
+      toTag:
+        required: false
+        type: string
+        default: "none"
+        description: "describes the upper bound to process pull request for"
+
+    secrets:
+      GIT_TOKEN:
+        required: true
+
+jobs:
+  # changelog generator job
+  changelo_generator:
+    runs-on: ubuntu-22.04
+    name: Changelog Generator
+    steps:
+      # clones current repository
+      - name: Clone Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # fetch the whole repo history
+
+      # - id: cz
+      #   name: Create bump and changelog
+      #   uses: commitizen-tools/commitizen-action@master
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     changelog_increment_filename: body.md
+      #     commit: false
+      # - name: Conventional Changelog Action
+      #   id: build_changelog
+      #   uses: TriPSs/conventional-changelog-action@v3
+      #   with:
+      #     github-token: ${{ secrets.github_token }}
+      #     skip-commit: "true"
+      #     skip-version-file: "true"
+      #     skip-tag: "true"
+      #     output-file: "false"
+
+      # Build changelog
+      # - name: Build Changelog
+      #   id: build_changelog
+      #   uses: mikepenz/release-changelog-builder-action@v3.6.0
+      #   with:
+      #     fromTag: ${{ inputs.fromTag }}
+      #     toTag: ${{ inputs.toTag }}
+      #     fetchReviewers: true
+      #     fetchReleaseInformation: true
+      #     includeOpen: true
+      #     failOnError: true
+      #     configurationJson: ./.github/workflows/configuration.json
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Set release date as year-month-day: YYYY-MM-DD.
+      - name: Set Release Date
+        run: |
+          echo "NOW=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo $NOW
+
+      - name: esp-idf build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.1.1
+          target: esp32
+      - name: Rename artifact
+        run: |
+          ls -lah
+          cp build/ble_poc_fw.bin ble_poc_fw.bin
+          mv sdkconfig sdkgone
+
+      - name: Archive Firmware Files
+        uses: actions/upload-artifact@v3
+        with:
+          name: esp32-firmware
+          path: "*ble_poc_fw.bin"
+
+      - name: Download Firmware Files
+        uses: actions/download-artifact@v3
+        with:
+          path: release
+
+      # Create release
+      - name: Release Firmware
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "${{ inputs.toTag }}"
+          # body: ${{ steps.build_changelog.outputs.changelog }}
+          # body_path: body.md
+          tag_name: ${{ inputs.toTag }}
+          token: ${{ secrets.GIT_TOKEN }}
+          files: release/*/*.bin

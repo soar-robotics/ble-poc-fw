@@ -1,0 +1,48 @@
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+    inputs:
+      tag_release:
+        description: "Release tag ?"
+        required: false
+        type: boolean
+
+# permissions:
+#   contents: write
+# name: Build
+
+jobs:
+  if_merged:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          echo The PR was merged
+  versioning:
+    needs: if_merged
+    name: CD
+    uses: ./.github/workflows/semversion.yml
+    with:
+      tag_prefix: v
+      tag_release: true
+      module_path: ./.github/workflows
+    secrets:
+      GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # call changelog reusable workflow
+  changelog_generator:
+    name: CD
+    needs: [versioning]
+    uses: ./.github/workflows/release.yml
+    with:
+      scope: ghaction
+      project_name: workflows
+      project_dir: .github/workflows
+      version: ${{ needs.versioning.outputs.sem_version }}
+      fromTag: v${{ needs.versioning.outputs.prev_version }}
+      toTag: ${{ needs.versioning.outputs.version }}
+    secrets:
+      GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
