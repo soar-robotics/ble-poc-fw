@@ -1,0 +1,20 @@
+menu "Example Configuration"
+    config BLE_ADV_NAME
+    string "Advertisement name"
+    default "BLE_DIS"
+    help
+      The device name inside advertisement.
+
+    config BLE_SUB_ADV
+    string "Subsequent advertisement data"
+    default "SUB_ADV"
+    help
+      The data inside subsequent advertisements.
+
+    config BLE_DIS_INFO
+    bool "Settings Device Information"
+    default y
+    help
+      Enable to settings the device information.
+
+endmenu
