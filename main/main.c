@@ -27,10 +27,17 @@
 
 static const char *TAG = "app_main";
 
+esp_ble_dis_pnp_t pnp_id;
+const char *model_number = NULL;
+const char *serial_number = NULL;
+const char *firmware_revision = NULL;
+const char *hardware_revision = NULL;
+const char *software_revision = NULL;
+const char *manufacturer = NULL;
+const char *system_id = NULL;
 static void app_ble_dis_init(void)
 {
     esp_ble_dis_init();
-#ifdef CONFIG_BLE_DIS_INFO
     esp_ble_dis_pnp_t pnp_id = {
         .src = CONFIG_BLE_DIS_PNP_VID_SRC,
         .vid = CONFIG_BLE_DIS_PNP_VID,
@@ -40,15 +47,17 @@ static void app_ble_dis_init(void)
     uint8_t mac[6];
     ESP_ERROR_CHECK(esp_read_mac((uint8_t *)mac, ESP_MAC_BT));
     sprintf(mac_str, MACSTR, MAC2STR(mac));
-    esp_ble_dis_set_model_number(CONFIG_BLE_DIS_MODEL);
-    esp_ble_dis_set_serial_number(mac_str);
-    esp_ble_dis_set_firmware_revision(esp_get_idf_version());
-    esp_ble_dis_set_hardware_revision(esp_get_idf_version());
+    esp_ble_dis_set_model_number("0x000102FFFF");
+    esp_ble_dis_set_serial_number("012342EAE172B706EE");
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_app_desc_t running_app_info;
+    esp_ota_get_partition_description(running, &running_app_info);
+    esp_ble_dis_set_firmware_revision(running_app_info.version);
+    esp_ble_dis_set_hardware_revision("mini-v3");
     esp_ble_dis_set_software_revision(esp_get_idf_version());
-    esp_ble_dis_set_manufacturer_name(CONFIG_BLE_DIS_MANUF);
+    esp_ble_dis_set_manufacturer_name("SoarRobotics");
     esp_ble_dis_set_system_id(CONFIG_BLE_DIS_SYSTEM_ID);
     esp_ble_dis_set_pnp_id(&pnp_id);
-#endif
 }
 
 static void app_ble_conn_event_handler(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
@@ -58,14 +67,6 @@ static void app_ble_conn_event_handler(void *handler_args, esp_event_base_t base
         return;
     }
 
-    esp_ble_dis_pnp_t pnp_id;
-    const char *model_number = "123";
-    const char *serial_number = "FFFF";
-    const char *firmware_revision = "v0.1.0";
-    const char *hardware_revision = "v3";
-    const char *software_revision = NULL;
-    const char *manufacturer = "SoarRobotics";
-    const char *system_id = NULL;
     switch (id)
     {
     case ESP_BLE_CONN_EVENT_CONNECTED:
