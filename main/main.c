@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <esp_timer.h>
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -24,6 +25,13 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "cJSON.h"
+#include "esp_hrs.h"
+
+#define APP_HRS_SET_VAL(a) (esp_random() % a)
+
+#define APP_HRS_FLAGS 2
+#define APP_HRS_MAX_U08 0xFF
+#define APP_HRS_MAX_U16 0xFFFF
 // ttest
 static const char *TAG = "app_main";
 
@@ -58,6 +66,57 @@ static void app_ble_dis_init(void)
     esp_ble_dis_set_manufacturer_name("SoarRobotics");
     esp_ble_dis_set_system_id(CONFIG_BLE_DIS_SYSTEM_ID);
     esp_ble_dis_set_pnp_id(&pnp_id);
+    esp_ble_hrs_init();
+    esp_ble_hrs_set_location(BLE_HRS_CHR_BODY_SENSOR_LOC_HAND);
+}
+
+static void heartrate_timer_cb(void *arg)
+{
+    esp_ble_hrs_hrm_t hrm = {
+        .flags = {
+            .format = APP_HRS_SET_VAL(APP_HRS_FLAGS),
+            .interval = APP_HRS_SET_VAL(APP_HRS_FLAGS),
+            .supported = APP_HRS_SET_VAL(APP_HRS_FLAGS),
+            .energy = APP_HRS_SET_VAL(APP_HRS_FLAGS),
+            .detected = APP_HRS_SET_VAL(APP_HRS_FLAGS),
+        },
+        .energy_val = APP_HRS_SET_VAL(APP_HRS_MAX_U16),
+    };
+
+    if (hrm.flags.format)
+    {
+        hrm.heartrate.u16 = APP_HRS_SET_VAL(APP_HRS_MAX_U16);
+    }
+    else
+    {
+        hrm.heartrate.u8 = APP_HRS_SET_VAL(APP_HRS_MAX_U08);
+    }
+
+    esp_fill_random(hrm.interval_buf, 2 * APP_HRS_SET_VAL(BLE_HRS_CHR_MERSUREMENT_RR_INTERVAL_MAX_NUM));
+
+    ESP_LOGI(TAG, "Heart Rate Value %d", hrm.flags.format ? hrm.heartrate.u16 : hrm.heartrate.u8);
+
+    if (!hrm.flags.supported && hrm.flags.detected)
+    {
+        ESP_LOGI(TAG, "Skin Contact should be detected on Sensor Contact Feature Supported");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Sensor Contact Feature %s Supported", hrm.flags.supported ? "is" : "isn't");
+        ESP_LOGI(TAG, "Skin Contact %s Detected", hrm.flags.detected ? "is" : "isn't");
+    }
+
+    if (hrm.flags.energy)
+    {
+        ESP_LOGI(TAG, "The Energy Expended feature is supported and accumulated %dkJ", hrm.energy_val);
+    }
+
+    if (hrm.flags.interval)
+    {
+        ESP_LOGI(TAG, "The multiple time between two R-Wave detections");
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, hrm.interval_buf, sizeof(hrm.interval_buf), ESP_LOG_INFO);
+    }
+    esp_ble_hrs_set_hrm(&hrm);
 }
 
 static void app_ble_conn_event_handler(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
@@ -66,6 +125,13 @@ static void app_ble_conn_event_handler(void *handler_args, esp_event_base_t base
     {
         return;
     }
+
+    static esp_timer_handle_t heartrate_timer = NULL;
+    esp_timer_create_args_t heartrate_timer_conf = {
+        .callback = heartrate_timer_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "heartrate"};
 
     switch (id)
     {
@@ -88,9 +154,20 @@ static void app_ble_conn_event_handler(void *handler_args, esp_event_base_t base
         ESP_LOGI(TAG, "System ID %s", system_id);
         ESP_LOGI(TAG, "PnP ID Vendor ID Source 0x%0x, Vendor ID 0x%02x, Product ID 0x%02x, Product Version 0x%02x",
                  pnp_id.src, pnp_id.vid, pnp_id.pid, pnp_id.ver);
+        if (!heartrate_timer)
+        {
+            esp_timer_create(&heartrate_timer_conf, &heartrate_timer);
+            esp_timer_start_periodic(heartrate_timer, 10000000);
+        }
         break;
     case ESP_BLE_CONN_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "ESP_BLE_CONN_EVENT_DISCONNECTED");
+        if (heartrate_timer)
+        {
+            esp_timer_stop(heartrate_timer);
+            esp_timer_delete(heartrate_timer);
+            heartrate_timer = NULL;
+        }
         break;
     default:
         break;
@@ -211,6 +288,7 @@ void advanced_ota_example_task(void *pvParameter)
         ESP_LOGE(TAG, "image header verification failed");
         goto ota_end;
     }
+    int last_progress = -1;
 
     while (1)
     {
@@ -222,6 +300,14 @@ void advanced_ota_example_task(void *pvParameter)
         // esp_https_ota_perform returns after every read operation which gives user the ability to
         // monitor the status of OTA upgrade by calling esp_https_ota_get_image_len_read, which gives length of image
         // data read so far.
+        int32_t dl = esp_https_ota_get_image_len_read(https_ota_handle);
+        int32_t size = esp_https_ota_get_image_size(https_ota_handle);
+        int progress = 100 * ((float)dl / (float)size);
+        if ((progress % 5 == 0) && (progress != last_progress))
+        {
+            ESP_LOGI(TAG, "Firmware Update Progress: %d%%", progress);
+            last_progress = progress;
+        }
         ESP_LOGD(TAG, "Image bytes read: %d", esp_https_ota_get_image_len_read(https_ota_handle));
     }
 
